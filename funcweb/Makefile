@@ -26,6 +26,7 @@ clean:
 	-rm -rf dist/
 	-rm -rf *~
 	-rm -rf rpm-build/
+	-rm -rf funcweb.egg-info/
 	-for d in $(DIRS); do ($(MAKE) -C $$d clean ); done
 
 clean_hard:
@@ -76,6 +77,7 @@ unittest:
 rpms: build sdist
 	mkdir -p rpm-build
 	cp dist/*.gz rpm-build/
+	cp funcweb.te rpm-build/
 	cp version rpm-build/
 	rpmbuild --define "_topdir %(pwd)/rpm-build" \
 	--define "_builddir %{_topdir}" \

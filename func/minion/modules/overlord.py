@@ -30,12 +30,38 @@ class OverlordModule(func_module.FuncModule):
             ping_results = fc.Overlord("*").test.ping()
             for minion in ping_results.keys():
                 if ping_results[minion] == 1: #if minion is alive
-                    current_minions.append(minion) #add it to the list of current minions
+                    current_minions.append(minion) #add it to the list
         else:
             cm = certmaster.CertMaster()
             current_minions = cm.get_signed_certs()
         for current_minion in current_minions:
-            maphash[current_minion] = fc.Overlord(current_minion).overlord.map_minions()[current_minion]
+            if current_minion in utils.get_hostname():
+                maphash[current_minion] = {} #prevent infinite recursion
+            else:
+                next_hop = fc.Overlord(current_minion)
+                mapresults = next_hop.overlord.map_minions()[current_minion]
+                if not utils.is_error(mapresults):
+                    maphash[current_minion] = mapresults
+                else:
+                    maphash[current_minion] = {}
         return maphash
+
+    def register_method_args(self):
+        """
+        Export overlord
+        """
+        return {
+                'map_minions':{
+                    'args':{
+                        'get_only_alive':{
+                            'type':'boolean',
+                            'optional':True,
+                            'default':True,
+                            'description':"Get only online ones"
+                            }
+                        },
+                    'description':"Builds a recursive map of the minions currently assigned to this minion overlord"
+                    }
+                }
         
     

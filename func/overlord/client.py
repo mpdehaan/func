@@ -16,10 +16,12 @@
 import sys
 import glob
 import os
+import time
 import func.yaml as yaml
 
 from certmaster.commonconfig import CMConfig
-from func.config import read_config, CONFIG_FILE
+from certmaster import utils
+from certmaster.config import read_config, CONFIG_FILE
 
 import sslclient
 
@@ -28,8 +30,9 @@ import groups
 import delegation_tools as dtools
 import func.forkbomb as forkbomb
 import func.jobthing as jobthing
-import func.utils as utils
 from func.CommonErrors import *
+import func.module_loader as module_loader
+from func.overlord import overlord_module
 
 # ===================================
 # defaults
@@ -93,20 +96,29 @@ class Minions(object):
         self.all_urls = []
 
     def _get_new_hosts(self):
-        self.new_hosts = self.group_class.get_hosts_by_groupgoo(self.spec)
+        self.new_hosts = self.group_class.get_hosts_by_group_glob(self.spec)
         return self.new_hosts
 
     def _get_all_hosts(self):
         seperate_gloobs = self.spec.split(";")
         seperate_gloobs = seperate_gloobs + self.new_hosts
         for each_gloob in seperate_gloobs:
+            #if there is some string from group glob just skip it
+            if each_gloob.startswith('@'):
+                continue
             actual_gloob = "%s/%s.%s" % (self.config.certroot, each_gloob, self.config.cert_extension)
             certs = glob.glob(actual_gloob)
             for cert in certs:
-                self.all_certs.append(cert)
-                host = cert.replace(self.config.certroot,"")[1:-(len(self.config.cert_extension) + 1)]
-                self.all_hosts.append(host)
-        return self.all_hosts
+                #if the spec includes some groups and also it includes some *
+                #may cause some duplicates so should check that
+                #For example spec = "@home_group;*" will give lots of duplicates as a result
+                if not cert in self.all_certs:
+                    self.all_certs.append(cert)
+		    # use basename to trim off any excess /'s, fix
+		    # ticket #53 "Trailing slash in certmaster.conf confuses glob function
+                    certname = os.path.basename(cert.replace(self.config.certroot, ""))
+                    host = certname[:-(len(self.config.cert_extension) + 1)]
+                    self.all_hosts.append(host)
 
     def get_all_hosts(self):
         self._get_new_hosts()
@@ -172,6 +184,8 @@ class Overlord(object):
         
         self.minions_class = Minions(self.server_spec, port=self.port, noglobs=self.noglobs,verbose=self.verbose)
         self.minions = self.minions_class.get_urls()
+        if len(self.minions) == 0:
+            raise Func_Client_Exception, 'Can\'t find any minions matching \"%s\". ' % self.server_spec
         
         if self.delegate:
             try:
@@ -183,6 +197,8 @@ class Overlord(object):
     
         if init_ssl:
             self.setup_ssl()
+
+        self.methods = module_loader.load_methods('func/overlord/modules/', overlord_module.BaseModule, self)
             
     def setup_ssl(self, client_key=None, client_cert=None, ca=None):
         # defaults go:
@@ -191,7 +207,7 @@ class Overlord(object):
           # raise FuncClientError
         ol_key = '%s/certmaster.key' % self.config.cadir
         ol_crt = '%s/certmaster.crt' % self.config.cadir
-        myname = utils.get_hostname()
+        myname = utils.get_hostname(talk_to_certmaster=False)
 
         # FIXME: should be config -akl?
         # maybe /etc/pki/func is a variable somewhere?
@@ -244,6 +260,28 @@ class Overlord(object):
 
     # -----------------------------------------------
 
+    def open_job_ids(self):
+        """
+        That method can be used by other apps that uses func API
+        to get current ids with their short results in the database
+        """
+        return jobthing.get_open_ids()
+    
+    def list_minions(self, format='list'):
+        """
+        Returns a flat list containing the minions this Overlord object currently
+        controls
+        """
+        if self.delegate:
+            return dtools.match_glob_in_tree(self.server_spec, self.minionmap)
+        minionlist = [] #nasty ugly hack to remove duplicate minions from list
+        for minion in self.minions_class.get_all_hosts():
+            if minion not in minionlist: #ugh, brute force :(
+                minionlist.append(minion)
+        return minionlist
+        
+    # -----------------------------------------------
+
     def run(self, module, method, args, nforks=1):
         """
         Invoke a remote method on one or more servers.
@@ -254,29 +292,71 @@ class Overlord(object):
         If Overlord() was constructed with noglobs=True, the return is instead
         just a single value, not a hash.
         """
-        
+
+        if module == "local":
+            if method in self.methods.keys():
+                return self.methods[method](*args)
+            else:
+                raise AttributeError("No such local method: %s" % method)
+
         if not self.delegate: #delegation is turned off, so run normally
             return self.run_direct(module, method, args, nforks)
         
-        resulthash = {}
+        delegatedhash = {}
+        directhash = {}
+        completedhash = {}
         
         #First we get all call paths for minions not directly beneath this overlord
         dele_paths = dtools.get_paths_for_glob(self.server_spec, self.minionmap)
-        non_single_paths = [path for path in dele_paths if len(path) > 1]
         
-        for path in non_single_paths:
-            resulthash.update(self.run_direct(module,
+        #Then we group them together in a dictionary by a common next hop
+        (single_paths,grouped_paths) = dtools.group_paths(dele_paths)
+        
+        for group in grouped_paths.keys():
+            delegatedhash.update(self.run_direct(module,
                                               method,
                                               args,
                                               nforks,
-                                              call_path=path))
+                                              call_path=grouped_paths[group],
+                                              suboverlord=group))
         
         #Next, we run everything that can be run directly beneath this overlord
         #Why do we do this after delegation calls?  Imagine what happens when
         #reboot is called...
-        resulthash.update(self.run_direct(module,method,args,nforks))
+        directhash.update(self.run_direct(module,method,args,nforks))
         
-        return resulthash
+        #poll async results if we've async turned on
+        if self.async:
+            while (len(delegatedhash) + len(directhash)) > 0:
+                for minion in delegatedhash.keys():
+                    results = delegatedhash[minion]
+                    (return_code, async_results) = self.job_status(results)
+                    if return_code == jobthing.JOB_ID_RUNNING:
+                        pass
+                    elif return_code == jobthing.JOB_ID_PARTIAL:
+                        pass
+                    else:
+                        completedhash.update(async_results[minion])
+                        del delegatedhash[minion]
+                
+                for minion in directhash.keys():
+                    results = directhash[minion]
+                    (return_code, async_results) = self.job_status(results)
+                    if return_code == jobthing.JOB_ID_RUNNING:
+                        pass
+                    elif return_code == jobthing.JOB_ID_PARTIAL:
+                        pass
+                    else:
+                        completedhash.update(async_results)
+                        del directhash[minion]
+                time.sleep(0.1) #pause a bit so we don't flood our minions
+            return completedhash
+        
+        #we didn't instantiate this Overlord in async mode, so we just return the
+        #result hash
+        completedhash.update(delegatedhash)
+        completedhash.update(directhash)
+        return completedhash
         
         
     # -----------------------------------------------
@@ -327,12 +407,18 @@ class Overlord(object):
 
                 # this is the point at which we make the remote call.
                 if use_delegate:
-                    retval = getattr(conn, meth)(module, method, args, delegation_path)
+                    retval = getattr(conn, meth)(module,
+                                                 method, 
+                                                 args,
+                                                 delegation_path,
+                                                 self.async,
+                                                 self.nforks)
                 else:
                     retval = getattr(conn, meth)(*args[:])
 
                 if self.interactive:
                     print retval
+                    
             except Exception, e:
                 (t, v, tb) = sys.exc_info()
                 retval = utils.nice_exception(t,v,tb)
@@ -349,23 +435,27 @@ class Overlord(object):
                 return (server_name, retval)
         
         if kwargs.has_key('call_path'): #we're delegating if this key exists
-            spec = kwargs['call_path'][0] #the sub-overlord directly beneath this one
+            delegation_path = kwargs['call_path']
+            spec = kwargs['suboverlord'] #the sub-overlord directly beneath this one
             minionobj = Minions(spec, port=self.port, verbose=self.verbose)
             use_delegate = True #signal to process_server to call delegate method
-            delegation_path = kwargs['call_path'][1:len(kwargs['call_path'])]
             minionurls = minionobj.get_urls() #the single-item url list to make async
                                               #tools such as jobthing/forkbomb happy
         else: #we're directly calling minions, so treat everything normally
             spec = self.server_spec
             minionurls = self.minions
+            #print "Minion_url is :",minionurls
+            #print "Process server is :",process_server
         
         if not self.noglobs:
             if self.nforks > 1 or self.async:
                 # using forkbomb module to distribute job over multiple threads
                 if not self.async:
+                   
                     results = forkbomb.batch_run(minionurls, process_server, nforks)
                 else:
-                    results = jobthing.batch_run(minionurls, process_server, nforks)
+                    minion_info =dict(spec=spec,module=module,method=method)
+                    results = jobthing.batch_run(minionurls, process_server,nforks,**minion_info)
             else:
                 # no need to go through the fork code, we can do this directly
                 results = {}
@@ -380,7 +470,13 @@ class Overlord(object):
             minions = expanded_minions.get_urls()[0]
             results = process_server(0, 0, minions)
         
+        if self.delegate and self.async:
+            return {spec:results}
+        
         if use_delegate:
+            if utils.is_error(results[spec]):
+                print results
+                return results
             return results[spec]
         
         return results

@@ -16,29 +16,21 @@ import sys
 
 
 import command
+import func.module_loader as module_loader
 
-#FIXME: need a plug-in runtime module loader here
-from cmd_modules import call
-from cmd_modules import show
-from cmd_modules import copyfile
-from cmd_modules import listminions
-from cmd_modules import ping
-from cmd_modules import check
-
-from func.overlord import client
+from func.overlord import client,base_command
 
 class FuncCommandLine(command.Command):
 
     name = "func"
     usage = "func [--options] \"hostname glob\" module method [arg1] [arg2] ... "
 
-    subCommandClasses = [
-        call.Call, show.Show, copyfile.CopyFile, 
-        listminions.ListMinions, ping.Ping, check.CheckAction
-    ]
+    subCommandClasses = []
 
     def __init__(self):
-
+        modules = module_loader.load_modules('func/overlord/cmd_modules/', base_command.BaseCommand)
+        for x in modules.keys():
+           self.subCommandClasses.append(modules[x].__class__)
         command.Command.__init__(self)
 
     def do(self, args):
@@ -57,7 +49,7 @@ class FuncCommandLine(command.Command):
         
     def handleArguments(self, args):
         if len(args) < 2:
-            print "see the func manpage for usage"
+            sys.stderr.write("see the func manpage for usage\n")
             sys.exit(411)
         minion_string = args[0]
         # try to be clever about this for now
@@ -72,4 +64,4 @@ class FuncCommandLine(command.Command):
     def handleOptions(self, options):
         if options.version:
             #FIXME
-            print "version is NOT IMPLEMENTED YET"
+            sys.stderr.write("version is NOT IMPLEMENTED YET\n")

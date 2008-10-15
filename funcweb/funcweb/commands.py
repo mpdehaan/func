@@ -11,16 +11,19 @@ pkg_resources.require("TurboGears")
 
 import turbogears
 import cherrypy
-import func.utils as futils
+from certmaster import utils
 
 cherrypy.lowercase_api = True
 
 class ConfigurationError(Exception):
     pass
 
+#that variable will help us to see when we are in PRODUCTION 
+PRODUCTION_ENV = False
+
 def start():
     """Start the CherryPy application server."""
-
+    global PRODUCTION_ENV
     setupdir = dirname(dirname(__file__))
     curdir = os.getcwd()
 
@@ -32,24 +35,21 @@ def start():
     # 'prod.cfg' in the current directory and then for a default
     # config file called 'default.cfg' packaged in the egg.
     if exists("/etc/funcweb/prod.cfg"):
-        print "I use the production ito the etc !"
+        #we work with production settings now !
+        PRODUCTION_ENV = True
         configfile = "/etc/funcweb/prod.cfg"
     
     elif len(sys.argv) > 1:
-        print "We got something from the sys"
         configfile = sys.argv[1]
     elif exists(join(setupdir, "setup.py")):
-        print "I use the dev one into the dev dir"
         configfile = join(setupdir, "dev.cfg")
     elif exists(join(curdir, "prod.cfg")):
-        print "I use the prod one into the cur dir"
         configfile = join(curdir, "prod.cfg")
     else:
         try:
             configfile = pkg_resources.resource_filename(
               pkg_resources.Requirement.parse("funcweb"),
                 "config/default.cfg")
-            print "That is another default conf"
         except pkg_resources.DistributionNotFound:
             raise ConfigurationError("Could not find default configuration.")
 
@@ -58,11 +58,11 @@ def start():
 
     from funcweb.controllers import Root
     
-    if exists("/etc/funcweb/prod.cfg"):
-        futils.daemonize("/var/run/funcwebd.pid")
+    if PRODUCTION_ENV:
+        utils.daemonize("/var/run/funcwebd.pid")
     #then start the server
     try:
         turbogears.start_server(Root())
     except Exception,e:
-        print "Exception occured :",e
-        sys.exit(1)    
+        print "Debug information from cherrypy server ...: ",e
+        #sys.exit(1)    

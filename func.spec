@@ -13,7 +13,7 @@ License: GPLv2+
 Group: Applications/System
 Requires: python >= 2.3
 Requires: pyOpenSSL
-Requires: pyYaml
+Requires: python-simplejson
 Requires: certmaster >= 0.1
 BuildRequires: python-devel
 %if %is_suse
@@ -130,6 +130,9 @@ fi
 
 
 %changelog
+* Fri Jul 18 2008 Adrian Likins <alikins@redhat.com> - 0.23-1
+- remove requirement for pyyaml, add python-simplejson
+
 * Fri Jul 11 2008 Michael DeHaan <mdehaan@redhat.com> - 0.23-1
 - (for ssalevan) adding in mapping/delegation tools
 

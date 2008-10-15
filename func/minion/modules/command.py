@@ -14,22 +14,28 @@ Abitrary command execution module for func.
 """
 
 import func_module
-import sub_process
+from func.minion import sub_process
 
 class Command(func_module.FuncModule):
 
     version = "0.0.1"
-    api_version = "0.0.1"
+    api_version = "0.0.2"
     description = "Works with shell commands."
 
-    def run(self, command):
+    def run(self, command, env=None):
         """
         Runs a command, returning the return code, stdout, and stderr as a tuple.
         NOT FOR USE WITH INTERACTIVE COMMANDS.
         """
 
-        cmdref = sub_process.Popen(command.split(), stdout=sub_process.PIPE,
-                                   stderr=sub_process.PIPE, shell=False)
+        
+        if env:
+            cmdref = sub_process.Popen(command.split(), stdout=sub_process.PIPE,
+                                       stderr=sub_process.PIPE, shell=False, 
+                                       close_fds=True, env=env)
+        else:
+            cmdref = sub_process.Popen(command.split(), stdout=sub_process.PIPE,
+                                       stderr=sub_process.PIPE, shell=False, close_fds=True)
         data = cmdref.communicate()
         return (cmdref.returncode, data[0], data[1])
 
@@ -42,3 +48,29 @@ class Command(func_module.FuncModule):
         if os.access(command, os.X_OK):
             return True
         return False
+
+    def register_method_args(self):
+        """
+        The argument export method
+        """
+        #common type in both descriptions
+        command = {
+                'type':'string',
+                'optional':False,
+                'description':'The command that is going to be used',
+                }
+
+        return {
+                'run':{
+                    'args':{
+                        'command':command
+                        },
+                    'description':'Run a specified command'
+                    },
+                'exists':{
+                    'args':{
+                        'command':command
+                        },
+                    'description':'Check if specific command exists'
+                    }
+                }

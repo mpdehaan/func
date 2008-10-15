@@ -10,6 +10,7 @@
 ## Copyright 2008, Various
 ## Marco Mornati <mmornati@byte-code.com>
 ## Michael DeHaan <mdehaan@redhat.com>
+## Adrian Likins <alikins@redhat.com>
 ##
 ## This software may be freely redistributed under the terms of the GNU
 ## general public license.
@@ -20,7 +21,7 @@
 ##
 
 
-## Example input file format:
+## Example yaml input file format:
 """
 clients: "*"
 aysnc: False
@@ -30,52 +31,128 @@ method: run
 parameters: "/bin/echo Hello World"
 """
 
+
+import exceptions
+import string
 import sys
 import distutils.sysconfig
+import optparse
 
-import func.yaml as yaml # FIXME: need to subpackage this as part of Func
+import simplejson
+
 import func.overlord.func_command as func_command
 import func.overlord.client as fc
+import func.yaml as yaml
+import func.CommonErrors
 
-# load input from stdin
-input = sys.stdin.read()
-params = yaml.load(input).next()
 
-# scan arguments
+class NoAsyncForListMinionException(exceptions.Exception):
+    def __init__(self, msg):
+        self.msg = msg
+    # scan arguments
 
-clients    = params.get('clients', "*")
-method     = params.get('method','unknown')
+class FuncTransmitError(object):
+    def __init__(self, name="", message="", info={}):
+        self.data = {'error':1,
+		     # not all of the marshall types support bools, so 1 will have to do 
+		      'name':name, 
+		     'message':message,
+		     'info':info}
 
-if method == "list_minions":
-    server_spec = "*"
-    minion_set = fc.Minions(server_spec)
-    servers = minion_set.get_all_hosts()
-    servers.sort()
-    results = servers
- 
-else:
-    # scan more arguments
+
+def is_a_list(item):
+    if type(item) in [type([]), type(())]:
+        return True
+    return False
+
+def read_data(format, data):
+    if format == "yaml":
+        params = yaml.load(data).next()
+    elif format == "json":
+        params = simplejson.loads(data)
+    return params
+
+def write_data(format, data):
+    # convert to selected language (default is JSON)
+    if format == "json":
+        output = simplejson.dumps(data)
+    elif format == "yaml":
+        output = yaml.dump(data)
+    print output
+
+def main(argv):
+# load input parameters
+    parser = optparse.OptionParser()
+    parser.add_option("-j","--json",
+                      help="Json Parser",
+                      action="store_true",
+                      dest="json",
+                      default=False)
+    parser.add_option("-y","--yaml",
+                      help="Yaml Parser",
+                      action="store_true",
+                      dest="yaml",
+                      default=False)
+    
+    (options,args) = parser.parse_args()
+
+    # load input from stdin
+    input = sys.stdin.read()
+
+    # Setting default language if no one is selected by user
+    if (options.json==False and options.yaml==False):
+        options.json = True
+
+    format = "json"
+    if (options.yaml):
+        format = "yaml"
+
+    params  = read_data(format, input)
+    
+
+    # slightly odd, but we expect clients to be a string we parse
+    # out later (glob and group expansion, etc). So if it is a list,
+    # flatten it into a string. 
+    clients    = params.get('clients', "*")
+    if is_a_list(clients):
+        clients  = string.join(clients,';')
+
+    method     = params.get('method','unknown')
     async      = params.get('async', False)
+
+    # scan more arguments
     nforks     = params.get('nforks', 1)
-    module     = params.get('module','unknown')
+    module     = params.get('module', None)
     parameters = params.get('parameters', None)
 
     # make the call
-    client = fc.Overlord(clients, async=async, nforks=nforks)
-    module_handle = getattr(client, module)
-    method_handle = getattr(module_handle, method)
+    try:
+	    client = fc.Overlord(clients, async=async, nforks=nforks)
+    except func.CommonErrors.Func_Client_Exception, e:
+	    error = FuncTransmitError("Func Client Exception", str(e))
+	    write_data(format, error.data)
+	    return 1
+
+    if module is None:
+        method_handle = getattr(client, method)
+    else:
+        module_handle = getattr(client, module)
+        method_handle = getattr(module_handle, method)
+
     if parameters is not None:
-        results = method_handle(parameters)
+        # listify if we get something thats not a list
+        if not is_a_list(parameters):
+            parameters = [parameters]
+        results = method_handle(*parameters)
     else:
         results = method_handle()
 
-# convert to YAML
-output = yaml.dump(results)
-
-# write to stdout
-print output
+    # convert to selected language (default is JSON) and output
+    write_data(format, results)
 
 
+    return 0
 
 
-
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -33,3 +33,74 @@ class Test(func_module.FuncModule):
         Returns whatever was passed into it
         """
         return data
+
+    def bigint(self):
+        """
+        Returns an integer greater than 2^32-1
+        """
+        return 2**32
+
+
+    def configfoo(self):
+        """
+        Returns the options config
+        """
+        return self.options
+
+
+
+    def register_method_args(self):
+        """
+        Implementing method argument getter
+        """
+
+        return {
+                'add':{
+                    'args':{
+                        'numb1':{
+                            'type':'int',
+                            'optional':False,
+                            'description':'An int'
+                            },
+                        'numb2':{
+                            'type':'int',
+                            'optional':False,
+                            'description':'An int'
+                                }
+
+                        },
+                    'description':'Gives back the sum of 2 integers'
+                    },
+                'ping':{
+                    'args':{},
+                    'description':"Ping the minion"
+                    },
+                'sleep':{
+                    'args':{
+                        't':{
+                            'type':'int',
+                            'optional':False,
+                            'description':'Num of sec'
+                            }
+                        },
+                    'description':"Sleep for a while"
+                    },
+                'explode':{
+                    'args':{},
+                    'description':"Raises an exception"
+                    },
+                'echo':{
+                    'args':{
+                        'data':{
+                            'type':'string',
+                            'optional':False,
+                            'description':"The message to send"
+                            }
+                        },
+                    'description':"Echoes back the sent data "
+                    },
+                'bigint':{
+                    'args':{},
+                    'description':"Returns a number greater than 2^32-1"
+                    }
+                }

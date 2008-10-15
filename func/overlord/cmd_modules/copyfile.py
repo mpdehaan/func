@@ -43,25 +43,11 @@ class CopyFile(base_command.BaseCommand):
         self.verbose = self.options.verbose
 
     def do(self, args):
-        if not args:
+        if not self.options.filename or not self.options.remotepath:
             self.outputUsage()
             return
         
         self.server_spec = self.parentCommand.server_spec
         self.getOverlord()
-        
-        try:
-            fb = open(self.options.filename, "r").read()
-        except IOError, e:
-            print "Unable to open file: %s: %s" % (self.options.filename, e)
-            return
 
-        st = os.stat(self.options.filename)
-        mode = stat.S_IMODE(st.st_mode)
-        uid = st.st_uid
-        gid = st.st_gid
-
-    
-        data = xmlrpclib.Binary(fb)
-        results = self.overlord_obj.run("copyfile", "copyfile", [self.options.remotepath, data,
-                                                                 mode, uid, gid])
+        return self.overlord_obj.local.copyfile.send(self.options.filename, self.options.remotepath)

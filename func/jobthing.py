@@ -47,6 +47,9 @@ def __get_status(jobid):
 def purge_old_jobs():
     return __access_status(purge=True)
 
+def clear_db():
+    return __access_status(clear=True)
+
 def __purge_old_jobs(storage):
     """
     Deletes jobs older than RETAIN_INTERVAL seconds.  
@@ -56,13 +59,49 @@ def __purge_old_jobs(storage):
     """
     nowtime = time.time()
     for x in storage.keys():
-        # minion jobs have "-minion" in the job id so disambiguation so we need to remove that
-        jobkey = x.replace("-","").replace("minion","")
+        jobkey = x.strip().split('-')
+        #if the jobkey's lenght is smaller than 4 it means that
+        #that id maybe a minion id that is in timestap-minion format
+        #or maybe a an old id which is in timestap format that handles
+        #both situations
+        if len(jobkey)<4: #the minion part job_ids
+            jobkey = jobkey[0]
+        #if the job is equal or bigger than 4 that means that it is a new type id
+        #which is in glob-module-method-timestamp format, in a perfect world the lenght
+        #of the jobkey should be exactly 4 but in some situations we have bigger lenghts
+        #anyway that control will hande all situation because only we need is the timestamp
+        #member which is the last one
+        else:
+            jobkey = jobkey[len(jobkey)-1]
+
         create_time = float(jobkey)
         if nowtime - create_time > RETAIN_INTERVAL:
             del storage[x]
 
-def __access_status(jobid=0, status=0, results=0, clear=False, write=False, purge=False):
+def get_open_ids():
+    return __access_status(write=False,get_all=True)
+
+def __get_open_ids(storage):
+    """
+    That method is needes from other language/API/UI/GUI parts that uses 
+    func's async methods to know the status of the results.
+    """
+    result_hash_pack = {}
+    #print storage
+    for job_id,result in storage.iteritems():
+        #TOBE REMOVED that control is for old job_ids 
+        #some users who will upgrade to new version will have errors
+        #if we dont have that control here :)
+        if len(job_id.split("-"))>=4: #ignore the old job_ids the overlord part 
+            result_hash_pack[job_id]=result[0]
+        elif len(job_id.split("-"))==2: #it seems to be a minion side id and also ignores old ids
+            result_hash_pack[job_id]=result[0]
+
+    return result_hash_pack
+
+        
+
+def __access_status(jobid=0, status=0, results=0, clear=False, write=False, purge=False,get_all=False):
 
     dir = os.path.expanduser(CACHE_DIR)
     if not os.path.exists(dir):
@@ -94,6 +133,8 @@ def __access_status(jobid=0, status=0, results=0, clear=False, write=False, purg
     if write:
         storage[str(jobid)] = (status, results)
         rc = jobid
+    elif get_all:
+        rc=__get_open_ids(storage)
     elif not purge:
         if storage.has_key(str(jobid)):
             # tuple of (status, results)
@@ -109,7 +150,7 @@ def __access_status(jobid=0, status=0, results=0, clear=False, write=False, purg
 
     return rc
 
-def batch_run(pool, callback, nforks):
+def batch_run(pool, callback, nforks,**extra_args):
     """
     This is the method used by the overlord side usage of jobthing.
     Minion side usage will use minion_async_run instead.
@@ -119,7 +160,8 @@ def batch_run(pool, callback, nforks):
     operation will be created in cachedir and subsequently deleted.    
     """
    
-    job_id = pprint.pformat(time.time())
+    job_id = utils.get_formated_jobid(**extra_args)
+    
     __update_status(job_id, JOB_ID_RUNNING, -1)
     pid = os.fork()
     if pid != 0:
@@ -128,9 +170,10 @@ def batch_run(pool, callback, nforks):
         # kick off the job
         results = forkbomb.batch_run(pool, callback, nforks)
         
-        # we now have a list of job id's for each minion, kill the task
+        # write job IDs to the state file on overlord 
         __update_status(job_id, JOB_ID_PARTIAL, results)
-        sys.exit(0)
+        # we now have a list of job id's for each minion, kill the task
+        os._exit(0)
 
 def minion_async_run(retriever, method, args):
     """
@@ -172,7 +215,6 @@ def job_status(jobid, client_class=None):
     # users should not be calling jobthing.py methods directly.
    
     got_status = __get_status(jobid)
-
     # if the status comes back as JOB_ID_PARTIAL what we have is actually a hash
     # of hostname/minion-jobid pairs.  Instantiate a client handle for each and poll them
     # for their actual status, filling in only the ones that are actually done.
@@ -197,17 +239,22 @@ def job_status(jobid, client_class=None):
             else:
                 (minion_interim_rc, minion_interim_result) = minion_result
 
-            if minion_interim_rc not in [ JOB_ID_RUNNING ]:
-                if minion_interim_rc in [ JOB_ID_LOST_IN_SPACE ]:
+            if minion_interim_rc != JOB_ID_RUNNING :
+                if minion_interim_rc == JOB_ID_LOST_IN_SPACE:
                     partial_results[host] = [ utils.REMOTE_ERROR, "lost job" ]
                 else:
                     partial_results[host] = minion_interim_result
             else: 
                 some_missing = True
 
-        if some_missing:
+        if some_missing or not interim_results:
             return (JOB_ID_PARTIAL, partial_results)
+        
         else:
+            # Save partial results in state file so next time we don't
+            # call minions to get status.
+            if partial_results:
+                __update_status(jobid,JOB_ID_FINISHED, partial_results)
             return (JOB_ID_FINISHED, partial_results)
 
     else:

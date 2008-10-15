@@ -1,5 +1,6 @@
 # Copyright 2007, Red Hat, Inc
 # James Bowes <jbowes@redhat.com>
+# Alex Wood <awood@redhat.com>
 #
 # This software may be freely redistributed under the terms of the GNU
 # general public license.
@@ -21,33 +22,83 @@ class DummyCallback(object):
 class Yum(func_module.FuncModule):
 
     version = "0.0.1"
-    api_version = "0.0.1"
+    api_version = "0.1.0"
     description = "Package updates through yum."
 
     def update(self, pkg=None):
-        # XXX support updating specific rpms
         ayum = yum.YumBase()
         ayum.doGenericSetup()
         ayum.doRepoSetup()
         try:
             ayum.doLock()
             if pkg != None:
-                ayum.update(name=pkg)
+                tx_result = ayum.update(pattern=pkg)
             else:
-                ayum.update()
+                tx_result = ayum.update()
+
             ayum.buildTransaction()
             ayum.processTransaction(
                     callback=DummyCallback())
         finally:
             ayum.closeRpmDB()
             ayum.doUnlock()
-        return True
+        return map(str, tx_result)
 
-    def check_update(self, repo=None):
-        """Returns a list of packages due to be updated"""
+    def check_update(self, filter=[], repo=None):
+        """Returns a list of packages due to be updated
+           You can specify a filter using the standard yum wildcards
+        """
+        # parsePackages expects a list and doesn't react well if you send in a plain string with a wildcard in it
+        # (the string is broken into a list and one of the list elements is "*" which matches every package)
+        if type(filter) not in [list, tuple]:
+            filter = [filter]
+
         ayum = yum.YumBase()
         ayum.doConfigSetup()
         ayum.doTsSetup()
         if repo is not None:
             ayum.repos.enableRepo(repo)
-        return map(str, ayum.doPackageLists('updates').updates)
+
+        pkg_list = ayum.doPackageLists('updates').updates
+
+        if filter:
+            # exactmatch are all the packages with exactly the same name as one in the filter list
+            # matched are all the packages that matched under any wildcards
+            # unmatched are all the items in the filter list that didn't match anything
+            exactmatch, matched, unmatched = yum.packages.parsePackages(pkg_list, filter)
+            pkg_list = exactmatch + matched
+
+        return map(str, pkg_list)
+
+    def register_method_args(self):
+        """
+        Implementing the argument getter
+        """
+
+        return{
+                'update':{
+                    'args':{
+                        'pkg':{
+                            'type':'string',
+                            'optional':True,
+                            'description':"The yum pattern for updating package"
+                            }
+                        },
+                    'description':"Updating system according to a specified pattern"
+                    },
+                'check_update':{
+                    'args':{
+                        'filter':{
+                            'type':'list',
+                            'optional':True,
+                            'description':"A list of what you want to update"
+                            },
+                        'repo':{
+                            'type':'string',
+                            'optional':True,
+                            'description':'Repo name to use for that update'
+                            }
+                        },
+                    'description':"Cheking for updates with supplied filter patterns and repo"
+                    }
+                }

@@ -15,51 +15,9 @@ import string
 import sys
 import traceback
 import socket
+import inspect
 
 REMOTE_ERROR = "REMOTE_ERROR"
-
-def trace_me():
-    x = traceback.extract_stack()
-    bar = string.join(traceback.format_list(x))
-    return bar
-
-def daemonize(pidfile=None):
-    """
-    Daemonize this process with the UNIX double-fork trick.
-    Writes the new PID to the provided file name if not None.
-    """
-
-    print pidfile
-    pid = os.fork()
-    if pid > 0:
-        sys.exit(0)
-    os.setsid()
-    os.umask(0)
-    pid = os.fork()
-
-    if pid > 0:
-        if pidfile is not None:
-            open(pidfile, "w").write(str(pid))
-        sys.exit(0)
-
-def nice_exception(etype, evalue, etb):
-    etype = str(etype)
-    try:
-        lefti = etype.index("'") + 1
-        righti = etype.rindex("'")
-        nicetype = etype[lefti:righti]
-    except:
-        nicetype = etype
-    nicestack = string.join(traceback.format_list(traceback.extract_tb(etb)))
-    return [ REMOTE_ERROR, nicetype, str(evalue), nicestack ] 
-
-def get_hostname():
-    fqdn = socket.getfqdn()
-    host = socket.gethostname()
-    if fqdn.find(host) != -1:
-        return fqdn
-    else:
-        return host
 
 
 def is_error(result):
@@ -72,4 +30,33 @@ def is_error(result):
     return False
 
 
-              
+def remove_weird_chars(dirty_word):
+    """
+    That method will be used to clean some
+    glob adress expressions because async stuff
+    depends on that part
+    
+    @param dirty_word : word to be cleaned
+    """
+    from copy import copy
+    copy_word = copy(dirty_word)
+    copy_word = copy_word.replace("-","_")
+    return copy_word
+
+def get_formated_jobid(**id_pack):
+    import time
+    import pprint
+
+    glob = remove_weird_chars(id_pack['spec'])
+    module = remove_weird_chars(id_pack['module'])
+    method = remove_weird_chars(id_pack['method'])
+    job_id = "".join([glob,"-",module,"-",method,"-",pprint.pformat(time.time())])
+    return job_id
+
+def is_public_valid_method(obj, attr, blacklist=[]):
+    if inspect.ismethod(getattr(obj, attr)) and attr[0] != '_':
+        for b in blacklist:
+            if attr==b:
+                return False
+        return True
+    return False
