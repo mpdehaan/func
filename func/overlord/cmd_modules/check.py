@@ -19,10 +19,13 @@ import os
 import urllib2
 
 from func.overlord import base_command
-from func import utils
+from certmaster import utils
+from func import utils as func_utils
 from func.minion import sub_process
 from certmaster.config import read_config
 from certmaster.commonconfig import MinionConfig
+from func.commonconfig import FuncdConfig
+
 
 
 class CheckAction(base_command.BaseCommand):
@@ -44,13 +47,17 @@ class CheckAction(base_command.BaseCommand):
 
     def do(self, args):
 
+        self.minion_config = read_config('/etc/certmaster/minion.conf', MinionConfig)
+        self.funcd_config = read_config('/etc/func/minion.conf', FuncdConfig)
+        
+
         if not self.check_certmaster and not self.check_minion:
            print "* specify --certmaster, --minion, or both"
            return
         else:
            print "SCAN RESULTS:"
 
-        hostname = utils.get_hostname()
+        hostname = func_utils.get_hostname_by_route()
         print "* FQDN is detected as %s, verify that is correct" % hostname
         self.check_iptables()
 
@@ -110,15 +117,16 @@ class CheckAction(base_command.BaseCommand):
  
             if rc == 0:
               # FIXME: don't hardcode port
-              print "* iptables may be running, ensure 51234 is unblocked"
+              print "* iptables may be running"
+              print "Insure that port %s is open for minions to connect to certmaster" % self.minion_config.certmaster_port
+              print "Insure that port %s is open for overlord to connect to minions" % self.funcd_config.listen_port
 
     def check_talk_to_certmaster(self):
-        config_file = '/etc/certmaster/minion.conf'
-        minion_config = read_config(config_file, MinionConfig)
-        cert_dir = minion_config.cert_dir
         # FIXME: don't hardcode port
-        master_uri = "http://%s:51235/" % minion_config.certmaster
-        print "* this minion is configured in /etc/certmaster/minion.conf to talk to host '%s' for certs, verify that is correct" % minion_config.certmaster
+        master_uri = "http://%s:%s/" % (self.minion_config.certmaster, self.minion_config.certmaster_port)
+        print "* this minion is configured in /etc/certmaster/minion.conf"
+        print " to talk to host '%s' on port %s for certs, verify that is correct" % (self.minion_config.certmaster, 
+                                                                                      self.minion_config.certmaster_port)
         # this will be a 501, unsupported GET, but we should be
         # able to tell if we can make contact
         connect_ok = True

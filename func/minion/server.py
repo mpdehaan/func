@@ -29,12 +29,14 @@ from certmaster.commonconfig import CMConfig
 from func import logger
 from certmaster import certs
 import func.jobthing as jobthing
+from func import utils as func_utils
 
 # our modules
 import AuthedXMLRPCServer
 import codes
 import func.module_loader as module_loader
 import func.minion.acls as acls_mod
+
 
 from certmaster import utils
 from certmaster import requester
@@ -56,7 +58,8 @@ class XmlRpcInterface(object):
         self.logger = logger.Logger().logger
         self.audit_logger = logger.AuditLogger()
         self.__setup_handlers()
-        
+
+
         # need a reference so we can log ip's, certs, etc
         # self.server = server
 
@@ -74,7 +77,6 @@ class XmlRpcInterface(object):
             except AttributeError, e:
                 self.logger.warning("module %s not loaded, missing register_rpc method" % self.modules[x])
 
-
         # internal methods that we do instead of spreading internal goo
         # all over the modules. For now, at lest -akl
 
@@ -84,6 +86,7 @@ class XmlRpcInterface(object):
         self.handlers["system.listMethods"] = self.list_methods
         self.handlers["system.list_methods"] = self.list_methods
         self.handlers["system.list_modules"] = self.list_modules
+        self.handlers["system.inventory"] = self.inventory
 
     def list_modules(self):
         modules = self.modules.keys()
@@ -94,6 +97,26 @@ class XmlRpcInterface(object):
         methods = self.handlers.keys()
         methods.sort()
         return methods
+
+
+    def inventory(self):
+        inventory = {}
+
+        # FIXME: it's kind of dumb that we dont have a real object
+        # to represent which methods are in which classes, just a list
+        # of modules, and a list of methods. we can match strings to
+        # see which are where, but that seems lame -akl
+        for module in self.modules.keys():
+            inventory[module] = []
+            for method in self.handlers.keys():
+                # string match, ick. 
+                method_bits = method.split('.')
+                method_module = string.join(method_bits[:-1], '.')
+                method_name = method_bits[-1]
+                if method_module == module:
+                    inventory[module].append(method_name)
+
+        return inventory
 
     def get_dispatch_method(self, method):
 
@@ -152,7 +175,12 @@ def serve():
     """
     Code for starting the XMLRPC service.
     """
-    server =FuncSSLXMLRPCServer(('', 51234))
+    config = read_config("/etc/func/minion.conf", FuncdConfig)
+    listen_addr = config.listen_addr
+    listen_port = config.listen_port
+    if listen_port == '':
+        listen_port = 51234
+    server =FuncSSLXMLRPCServer((listen_addr, listen_port))
     server.logRequests = 0 # don't print stuff to console
     server.serve_forever()
 
@@ -176,7 +204,8 @@ class FuncSSLXMLRPCServer(AuthedXMLRPCServer.AuthedSSLXMLRPCServer,
         self.modules = module_loader.load_modules()
 
         XmlRpcInterface.__init__(self)
-        hn = utils.get_hostname()
+        hn = func_utils.get_hostname_by_route()
+
         self.key = "%s/%s.pem" % (self.cm_config.cert_dir, hn)
         self.cert = "%s/%s.cert" % (self.cm_config.cert_dir, hn)
         self.ca = "%s/ca.cert" % self.cm_config.cert_dir
@@ -185,7 +214,7 @@ class FuncSSLXMLRPCServer(AuthedXMLRPCServer.AuthedSSLXMLRPCServer,
 
         self.acls = acls_mod.Acls(config=self.config)
         
-        AuthedXMLRPCServer.AuthedSSLXMLRPCServer.__init__(self, ("", 51234),
+        AuthedXMLRPCServer.AuthedSSLXMLRPCServer.__init__(self, args,
                                                           self.key, self.cert,
                                                           self.ca)
 
@@ -241,12 +270,28 @@ class FuncSSLXMLRPCServer(AuthedXMLRPCServer.AuthedSSLXMLRPCServer,
         return peer_cert.get_subject().CN
     
 
+def excepthook(exctype, value, tracebackobj):
+    exctype_blurb = "Exception occured: %s" % exctype
+    excvalue_blurb = "Exception value: %s" % value
+    exctb_blurb = "Exception Info:\n%s" % string.join(traceback.format_list(traceback.extract_tb(tracebackobj)))
+
+    print exctype_blurb
+    print excvalue_blurb
+    print exctb_blurb
+
+    log = logger.Logger().logger 
+    log.info(exctype_blurb)
+    log.info(excvalue_blurb)
+    log.info(exctb_blurb)
+
+
 def main(argv):
 
     """
     Start things up.
     """
 
+    sys.excepthook = excepthook
     if len(sys.argv) > 1 and sys.argv[1] == "--list-modules":
         module_names = module_loader.load_modules().keys()
         module_names.sort()

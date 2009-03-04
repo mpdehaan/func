@@ -1,40 +1,55 @@
+%if 0%{?rhel} == 3
+%define __python_ver 2.3
+%endif
+%define python python%{?__python_ver}
+%define __python /usr/bin/%{python}
 
+%{!?python_version: %define python_version %(%{__python} -c "from distutils.sysconfig import get_python_version; print get_python_version()")}
 %{!?python_sitelib: %define python_sitelib %(%{__python} -c "from distutils.sysconfig import get_python_lib; print get_python_lib()")}
 
 %define is_suse %(test -e /etc/SuSE-release && echo 1 || echo 0)
 
 Summary: Remote management framework
 Name: func
-Source1: version
-Version: %(echo `awk '{ print $1 }' %{SOURCE1}`)
-Release: %(echo `awk '{ print $2 }' %{SOURCE1}`)%{?dist}
+Version: 0.24 
+Release: 5%{?dist}
 Source0: %{name}-%{version}.tar.gz
 License: GPLv2+
 Group: Applications/System
+%if 0%{?rhel} == 3
+Requires: %{python}
+Requires: pyOpenSSL-py23
+%else
 Requires: python >= 2.3
 Requires: pyOpenSSL
-Requires: python-simplejson
-Requires: certmaster >= 0.1
-BuildRequires: python-devel
+%endif
+Requires: %{python}-simplejson
+Requires: certmaster >= %{version}
+Requires: logrotate
+BuildRequires: %{python}-devel
 %if %is_suse
 BuildRequires: gettext-devel
 %else
 %if 0%{?fedora} >= 8
 BuildRequires: python-setuptools-devel
 %else
+%if 0%{?rhel} >= 5
 BuildRequires: python-setuptools
+%endif
 %endif
 %endif
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
 BuildArch: noarch
-Url: https://hosted.fedoraproject.org/projects/func/
+Url: https://fedorahosted.org/func/
 
 %description
-
 func is a remote api for mangement, configuration, and monitoring of systems.
 
 %prep
 %setup -q
+%if 0%{?rhel} == 3
+%patch0 -p1
+%endif
 
 %build
 %{__python} setup.py build
@@ -48,7 +63,7 @@ rm -fr $RPM_BUILD_ROOT
 
 %files
 %defattr(-, root, root, -)
-%if 0%{?fedora} > 8
+%if "%{python_version}" >= "2.5"
 %{python_sitelib}/func*.egg-info
 %endif
 %{_bindir}/funcd
@@ -65,10 +80,14 @@ rm -fr $RPM_BUILD_ROOT
 %config(noreplace) /etc/func/minion.conf
 %config(noreplace) /etc/func/async_methods.conf
 %config(noreplace) /etc/logrotate.d/func_rotate
+%config(noreplace) /etc/func/modules/Test.conf
+%config(noreplace) /etc/func/modules/Bridge.conf
+%config(noreplace) /etc/func/modules/Vlan.conf
 %dir %{python_sitelib}/func
 %dir %{python_sitelib}/func/minion
 %dir %{python_sitelib}/func/overlord
 %dir %{python_sitelib}/func/overlord/cmd_modules
+%dir %{python_sitelib}/func/overlord/modules
 %dir %{python_sitelib}/func/yaml
 %{python_sitelib}/func/minion/*.py*
 %{python_sitelib}/func/overlord/*.py*
@@ -81,6 +100,9 @@ rm -fr $RPM_BUILD_ROOT
 
 # we need to make the spec and setup.py find modules
 # in deep dirs automagically
+
+%dir %{python_sitelib}/func/minion/modules/netapp
+%dir %{python_sitelib}/func/minion/modules/netapp/vol
 %{python_sitelib}/func/minion/modules/*/*.py*
 %{python_sitelib}/func/minion/modules/*/*/*.py*
 
@@ -130,7 +152,30 @@ fi
 
 
 %changelog
-* Fri Jul 18 2008 Adrian Likins <alikins@redhat.com> - 0.23-1
+* Wed Feb 18 2009 Adrian Likins <alikins@redhat.com> - 0.24-5
+- remove version file
+
+* Mon Jan 19 2009 Adrian Likins <alikins@redhat.com> - 0.24.4
+- make inclusion of egginfo dependant on having python >= 2.5
+- remove need for patch on rhel3+python2.4 cases (distutils should
+  do all the /usr/bin/python renaming now)
+- minor reformatting changes
+
+* Tue Jan 06 2009 Greg Swift <gregswift@gmail.com> - 0.24-3
+- Fixed spec because it was only building in rhel3
+
+* Wed Dec 31 2008 Greg Swift <gregswift@gmail.com> - 0.24-2
+- Patched SPEC to build on rhel3 with python2.3
+- Added Patch0 to handle python2.3 if on rhel3
+
+* Wed Dec 17 2008 Adrian Likins <alikins@redhat.com> - 0.24-1
+- require certmaster 0.24 
+
+* Mon Dec 8 2008 Adrian Likins <alikins@redhat.com> - 0.24-1
+- claim ownership of all dirs bz#474644
+- add dep on logrotate
+
+* Fri Jul 18 2008 Adrian Likins <alikins@redhat.com> - 0.23-2
 - remove requirement for pyyaml, add python-simplejson
 
 * Fri Jul 11 2008 Michael DeHaan <mdehaan@redhat.com> - 0.23-1

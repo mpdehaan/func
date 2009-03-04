@@ -85,7 +85,7 @@ class FileTracker(func_module.FuncModule):
         # accept a single string or list
         filenameglobs.append(file_name_globs)
         if type(file_name_globs) == type([]):
-            filenameglobs = file_names
+            filenameglobs = file_name_globs
 
 
         # expand everything that might be a glob to a list
@@ -110,8 +110,9 @@ class FileTracker(func_module.FuncModule):
         filehash = self.__load()
         filenames = filehash.keys()
         for filename in filenames:
-            if fnmatch.fnmatch(filename, file_name_globs):
-                del filehash[filename]
+            for file_name_glob in file_name_globs:
+                if fnmatch.fnmatch(filename, file_name_glob):
+                    del filehash[filename]
         self.__save(filehash)
         return 1
 
@@ -236,7 +237,7 @@ class FileTracker(func_module.FuncModule):
                     },
                 'track':{
                     'args':{
-                        'file_name':{
+                        'file_name_globs':{
                             'type':'string',
                             'optional':False,
                             'description':"The file name to track (full path)"
@@ -252,7 +253,7 @@ class FileTracker(func_module.FuncModule):
                     },
                 'untrack':{
                     'args':{
-                        'file_name':{
+                        'file_name_globs':{
                             'type':'string',
                             'optional':False,
                             'description':"The file name to untrack (full path)"

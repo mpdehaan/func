@@ -1,11 +1,21 @@
 import func_module
 import time
 import exceptions
+from certmaster.config import BaseConfig, Option, IntOption, FloatOption, BoolOption
 
 class Test(func_module.FuncModule):
     version = "11.11.11"
     api_version = "0.0.1"
     description = "Just a very simple example module"
+
+    class Config(BaseConfig):
+        example = Option('1')
+        string_option = Option('some string here')
+        int_option = IntOption(37)
+        bool_option = BoolOption(True)
+        float_option = FloatOption(3.14159)
+        testvalue = 'this is a test. It is only a test'
+        
 
     def add(self, numb1, numb2):
         return numb1 + numb2
@@ -22,11 +32,20 @@ class Test(func_module.FuncModule):
         time.sleep(t)
         return time.time()
 
+
     def explode(self):
         """
         Testing remote exception handling is useful
         """
         raise exceptions.Exception("khhhhhhaaaaaan!!!!!!")
+
+
+    def explode_no_string(self):
+        """
+        Testing remote exception handling is useful
+        """
+        raise exceptions.Exception()
+
 
     def echo(self, data):
         """
@@ -47,7 +66,23 @@ class Test(func_module.FuncModule):
         """
         return self.options
 
+    def config_save(self):
+	"""
+	Saves the options config
+	"""
+	self.save_config()
+	return self.options
 
+    def config_set(self, key_name, value):
+        setattr(self.options,key_name, value)
+        self.save_config()
+        return self.options
+
+    def config_get(self, key_name):
+	return getattr(self.options, key_name)
+
+    def config_get_test(self):
+	return self.options.testvalue
 
     def register_method_args(self):
         """

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #
 # Copyright 2008, Stone-IT
 # Jasper Capel <capel@stone-it.com>
@@ -18,27 +17,40 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 # 02110-1301  USA
 
+"""
+Func module for VLAN management
+"""
+
+__author__ = "Jasper Capel <capel@stone-it.com>"
+__version__ = "0.0.3"
+__api_version__ = "0.0.2"
+
 import func_module
 import os, re
+from certmaster.config import BaseConfig, Option, ListOption
+
 
 class Vlan(func_module.FuncModule):
-    version = "0.0.2"
-    api_version = "0.0.2"
+    version = __version__
+    api_version = __api_version__
     description = "Func module for VLAN management"
 
-    # A list of VLAN IDs that should be ignored.
-    # You can use this if you have VLAN IDs which are reserved for internal
-    # use, which should never be touched by func.
-    # Use strings here, not integers!
-    ignorevlans = [ ]
-    vconfig = "/sbin/vconfig"
-    ip = "/sbin/ip"
-    ifup = "/sbin/ifup"
-    ifdown = "/sbin/ifdown"
+    class Config(BaseConfig):
+        # A list of VLAN IDs that should be ignored.
+        # You can use this if you have VLAN IDs which are reserved for internal
+        # use, which should never be touched by func.
+        # Use strings here, not integers!
+        ignorevlans = ListOption()
+        vconfig = Option("/sbin/vconfig")
+        ip = Option("/sbin/ip")
+        ifup = Option("/sbin/ifup")
+        ifdown = Option("/sbin/ifdown")
 
     def list(self):
-        # Returns a dictionary, elements look like this:
-        # key: interface, value: [id1, id2, id3]
+        """
+        Returns a dictionary, elements look like this:
+        key: interface, value: [id1, id2, id3]
+        """
 
         retlist = {}
 
@@ -64,8 +76,10 @@ class Vlan(func_module.FuncModule):
         return retlist
 
     def list_permanent(self):
-        # Returns a dictionary of permanent VLANs, return format is the same as
-        # in the list() method.
+        """
+        Returns a dictionary of permanent VLANs, return format is the same as
+        in the list() method.
+        """
         retlist = {}
         pattern = re.compile('ifcfg-([a-z0-9]+)\.([0-9]+)')
 
@@ -85,16 +99,31 @@ class Vlan(func_module.FuncModule):
 
 
     def add(self, interface, vlanid):
-        # Adds a vlan with vlanid on interface
-        if vlanid not in self.ignorevlans:
-            exitcode = os.spawnv(os.P_WAIT, self.vconfig, [ self.vconfig, "add", interface, str(vlanid)] )
+        """
+        Adds a vlan to an interface
+
+        Keyword arguments:
+        interface -- interface to add vlan to (string, for example: "eth0")
+        vlanid -- ID of the vlan to add (string, for example: "1100")
+        """
+        if vlanid not in self.options.ignorevlans:
+            exitcode = os.spawnv(os.P_WAIT, self.options.vconfig, [ self.options.vconfig, "add", interface, str(vlanid)] )
         else:
             exitcode = -1
         
         return exitcode
 
     def add_permanent(self, interface, vlanid, ipaddr=None, netmask=None, gateway=None):
-        # Permanently adds a VLAN by writing to an ifcfg-file
+        """
+        Permanently adds a VLAN by writing to an ifcfg-file
+
+        Keyword arguments:
+        interface -- interface to add vlan to (string, for example: "eth0")
+        vlanid -- ID of the vlan to add (string, for example: "1100")
+        ipaddr -- IP-address for this VLAN (string)
+        netmask -- Netmask for this VLAN (string)
+        gateway -- Gateway for this VLAN (string)
+        """
         alreadyup = False
         list = self.list()
         if interface in list:
@@ -103,7 +132,7 @@ class Vlan(func_module.FuncModule):
                 alreadyup = True
 
         device = "%s.%s" % (interface, vlanid)
-        if vlanid not in self.ignorevlans:
+        if vlanid not in self.options.ignorevlans:
             filename = "/etc/sysconfig/network-scripts/ifcfg-%s" % device
             fp = open(filename, "w")
             filelines = [ "DEVICE=%s\n" % device, "VLAN=yes\n", "ONBOOT=yes\n" ]
@@ -123,23 +152,37 @@ class Vlan(func_module.FuncModule):
                 # Don't run ifup, this will confuse the OS
                 exitcode = self.up(interface, vlanid)
             else:
-                exitcode = os.spawnv(os.P_WAIT, self.ifup, [ self.ifup, device ])
+                exitcode = os.spawnv(os.P_WAIT, self.options.ifup, [ self.options.ifup, device ])
         else:
             exitcode = -1
         return exitcode
 
     def delete(self, interface, vlanid):
-        # Deletes a vlan with vlanid from interface
+        """
+        Deletes a vlan from an interface.
+        
+        Keyword arguments:
+        interface -- Interface to delete vlan from (string, example: "eth0")
+        vlanid -- Vlan ID to remove (string, example: "1100")
+        """
         vintfname = interface + "." + str(vlanid)
-        if vlanid not in self.ignorevlans:
-            exitcode = os.spawnv(os.P_WAIT, self.vconfig, [ self.vconfig, "rem", vintfname] )
+        if vlanid not in self.options.ignorevlans:
+            exitcode = os.spawnv(os.P_WAIT, self.options.vconfig, [ self.options.vconfig, "rem", vintfname] )
         else:
             exitcode = -1
 
         return exitcode
 
     def delete_permanent(self, interface, vlanid):
-        if vlanid not in self.ignorevlans:
+        """
+        Permanently removes a vlan from an interface. This is useful when the vlan is configured through an ifcfg-file.
+
+        Keyword arguments:
+        interface -- interface to delete vlan from (string, example: "eth0")
+        vlanid -- Vlan ID to remove (string, example: "1100")
+        """
+
+        if vlanid not in self.options.ignorevlans:
             device = "%s.%s" % (interface, vlanid)
             filename = "/etc/sysconfig/network-scripts/ifcfg-%s" % device
             self.down(interface, vlanid)
@@ -152,29 +195,46 @@ class Vlan(func_module.FuncModule):
         return exitcode
 
     def up(self, interface, vlanid):
-        # Marks a vlan interface as up
+        """
+        Marks a vlan interface as up
+
+        Keyword arguments:
+        interface -- interface this vlan resides on (string, example: "eth0")
+        vlanid -- ID for this vlan (string, example: "1100")
+        """
+
         vintfname = interface + "." + str(vlanid)
-        if vlanid not in self.ignorevlans:
-            exitcode = os.spawnv(os.P_WAIT, self.ip, [ self.ip, "link", "set", vintfname, "up" ])
+        if vlanid not in self.options.ignorevlans:
+            exitcode = os.spawnv(os.P_WAIT, self.options.ip, [ self.options.ip, "link", "set", vintfname, "up" ])
         else:
             exitcode = -1
 
         return exitcode
 
     def down(self, interface, vlanid):
-        # Marks a vlan interface as down
+        """
+        Marks a vlan interface as down
+
+        Keyword arguments:
+        interface -- interface this vlan resides on (string, example: "eth0")
+        vlanid -- ID for this vlan (string, example: "1100")
+        """
         vintfname = interface + "." + str(vlanid)
         if vlanid not in self.ignorevlans:
-            exitcode = os.spawnv(os.P_WAIT, self.ip, [ self.ip, "link", "set", vintfname, "down" ])
+            exitcode = os.spawnv(os.P_WAIT, self.options.ip, [ self.options.ip, "link", "set", vintfname, "down" ])
         else:
             exitcode = -1
 
         return exitcode
 
     def make_it_so(self, configuration):
-        # Applies the supplied configuration to the system.
-        # Configuration is a dictionary, elements should look like this:
-        # key: interface, value: [id1, id2, id3]
+        """
+        Applies the supplied configuration to the system.
+
+        Keyword arguments:
+        configuration  -- dictionary, elements should look like this: key: interface, value: [id1, id2, id3]
+        """
+
         currentconfig = self.list()
         newconfig = {}
 
@@ -218,8 +278,10 @@ class Vlan(func_module.FuncModule):
         return self.list()
     
     def write(self):
-        # Permantly applies configuration obtained through the list() method to
-        # the system.
+        """
+        Permantly applies configuration obtained through the list() method to the system.
+        """
+
         currentconfig = self.list_permanent()
         newconfig = self.list()
 

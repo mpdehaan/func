@@ -4,7 +4,7 @@ from distutils.core import setup
 #from setuptools import setup,find_packages
 
 NAME = "func"
-VERSION = open("version", "r+").read().split()[0]
+VERSION = "0.24"
 SHORT_DESC = "%s remote configuration and management api" % NAME
 LONG_DESC = """
 A small pluggable xml-rpc daemon used by %s to implement various web services hooks
@@ -26,7 +26,7 @@ if __name__ == "__main__":
                 version = VERSION,
                 author = "Lots",
                 author_email = "func-list@redhat.com",
-                url = "https://hosted.fedoraproject.org/projects/func/",
+                url = "https://fedorahosted.org/func/",
                 license = "GPL",
 		scripts = [
                      "scripts/funcd",
@@ -59,11 +59,13 @@ if __name__ == "__main__":
                               (manpath,  ["docs/func-inventory.1.gz"]),
                               (manpath,  ["docs/funcd.1.gz"]),
                               (manpath,  ["docs/func-transmit.1.gz"]),
-			      (rotpath,  ['etc/func_rotate']),
+                              (rotpath,  ['etc/func_rotate']),
                               (logpath,  []),
-			      (etcmodpath,  []),
-			      (varpath,  []),
-			      (aclpath,  [])
+                              (etcmodpath,  ['etc/Test.conf']),
+                              (etcmodpath,  ['etc/Bridge.conf']),
+                              (etcmodpath,  ['etc/Vlan.conf']),
+                              (varpath,  []),
+                              (aclpath,  [])
                 ],
                 description = SHORT_DESC,
                 long_description = LONG_DESC

@@ -77,6 +77,9 @@ class BaseTest:
         assert func.utils.is_error(result[self.th]) == False
 #        assert type(result[self.th]) != xmlrpclib.Fault
 
+    def assert_on_no_fault(self, results):
+        assert func.utils.is_error(results[self.th]) == True
+
     # attrs set so we can skip these via nosetest
     test_module_version.intro = True
     test_module_api_version.intro = True
@@ -100,6 +103,18 @@ class TestTest(BaseTest):
     def test_sleep(self):
         result = self.overlord.test.sleep(1)
         self.assert_on_fault(result)
+
+    def test_explode(self):
+        results = self.overlord.test.explode()
+        print results
+        self.assert_on_no_fault(results)
+
+
+    def test_explode_no_string(self):
+        results = self.overlord.test.explode_no_string()
+        print results
+        self.assert_on_no_fault(results)
+
 
     def _echo_test(self, data):
         result = self.overlord.test.echo(data)
@@ -153,9 +168,53 @@ class TestTest(BaseTest):
 
     def test_config(self):
         result = self.overlord.test.configfoo()
+        config = result[self.th]
         self.assert_on_fault(result)
 
-        
+    def test_config_write(self):
+        result = self.overlord.test.config_save()
+        config = result[self.th]
+        self.assert_on_fault(result)
+
+    def test_config_set(self):
+        result = self.overlord.test.config_set("example", 5000)
+        config = result[self.th]
+        self.assert_on_fault(result)
+
+    def test_config_get_example(self):
+        result = self.overlord.test.config_get("example")
+        config = result[self.th]
+        self.assert_on_fault(result)
+
+    def test_config_get_string(self):
+	result = self.overlord.test.config_get("string_option")
+        option = result[self.th]
+        print option
+        assert(type(option) == type("foo"))
+	self.assert_on_fault(result)
+
+    def test_config_get_int(self):
+        result = self.overlord.test.config_get("int_option")
+        option = result[self.th]
+        assert(type(option) == type(1))
+        self.assert_on_fault(result)
+
+    def test_config_get_bool(self):
+        result = self.overlord.test.config_get("bool_option")
+        option = result[self.th]
+        assert(type(option) == type(True))
+        self.assert_on_fault(result)
+
+    def test_config_get_float(self):
+        result = self.overlord.test.config_get("float_option")
+        option = result[self.th]
+        assert(type(option) == type(2.71828183))
+        self.assert_on_fault(result)
+
+    def test_config_get_test(self):
+	result = self.overlord.test.config_get_test()
+	self.assert_on_fault(result)
+
 
 
 
@@ -180,25 +239,62 @@ class TestCommand(BaseTest):
 	result = self.overlord.command.run("env",
 				           {'BLIPPYFOO':'awesome'})
 	self.assert_on_fault(result)
-	assert result[self.th][1].strip() == "BLIPPYFOO=awesome"
+	assert result[self.th][1].find("BLIPPYFOO=awesome") != -1
+
+#    def test_sleep_long(self):
+#        result = self.overlord.command.run("sleep 256")
+#        self.assert_on_fault(result)
+
+    def test_shell_globs(self):
+        result = self.overlord.command.run("ls /etc/cron*")
+        self.assert_on_fault(result)
+
+    def test_shell_pipe(self):
+        result = self.overlord.command.run("echo 'foobar' | grep foo")
+        self.assert_on_fault(result)
+        assert result[self.th][1] == "foobar\n"
+
+
+    def test_shell_redirect(self):
+        result = self.overlord.command.run("mktemp")
+        tmpfile = result[self.th][1].strip()
+        result = self.overlord.command.run("echo foobar >> %s; cat %s" % (tmpfile, tmpfile))
+        self.assert_on_fault(result)
+        assert result[self.th][1] == "foobar\n"
+
+    def test_shell_multiple_commands(self):
+        result = self.overlord.command.run("cal; date; uptime; ls;")
+        self.assert_on_fault(result)
+
 
 class TestCopyfile(BaseTest):
     fn = "/tmp/func_test_file"
     dest_fn = "/tmp/func_test_file_dest"
     content = "this is a func test file"
     module = "copyfile"
-    def create_a_file(self):
+    def create_a_file(self, size=1):
+        
         f = open(self.fn, "w")
-        f.write(self.content)
+        f.write(self.content*size)
         f.close()
 
-    def test_copyfile(self):
-        self.create_a_file()
+#    def test_local_copyfile(self):
+#        result = self.overlord.local.copyfile.send(self.fn, self.dest_fn)
+#        print result
+#        self.assert_on_fault(result)
+
+
+    def test_copyfile(self, size=1):
+        self.create_a_file(size=size)
         fb = open(self.fn,"r").read()
         data = xmlrpclib.Binary(fb)
         result = self.overlord.copyfile.copyfile(self.dest_fn, data)
         self.assert_on_fault(result)
         assert result[self.th]  == 0
+        
+ #   def test_copyfile_big(self):
+ #       # make a file in the ~70 meg range
+ #       self.test_copyfile(size=100)
         
  
     def test_checksum(self):
@@ -232,11 +328,45 @@ class TestHardware(BaseTest):
 
 class TestFileTracker(BaseTest):
     fn = "/etc/hosts"
+    fn_glob = "/etc/init.d/*"
+    fn_list = ["/etc/hosts", "/etc/func/minion.conf"]
+    fn_glob_list = ["/etc/hosts", "/etc/func/*"]
     module = "filetracker"
     def test_track(self):
         result = self.overlord.filetracker.track(self.fn)
         assert result[self.th] == 1
         self.assert_on_fault(result)
+
+    def test_track_glob(self):
+        result = self.overlord.filetracker.track(self.fn)
+        assert result[self.th] == 1
+        self.assert_on_fault(result)
+
+    def test_untrack_glob(self):
+        result = self.overlord.filetracker.track(self.fn_glob)
+        result = self.overlord.filetracker.untrack(self.fn_glob)
+        self.assert_on_fault(result)
+
+    def test_track_fn_list(self):
+        result = self.overlord.filetracker.track(self.fn_list)
+        assert result[self.th] == 1
+        self.assert_on_fault(result)
+
+    def test_untrack_fn_list(self):
+        result = self.overlord.filetracker.track(self.fn_list)
+        result = self.overlord.filetracker.untrack(self.fn_list)
+        self.assert_on_fault(result)
+
+    def test_track_fn_glob_list(self):
+        result = self.overlord.filetracker.track(self.fn_glob_list)
+        assert result[self.th] == 1
+        self.assert_on_fault(result)
+
+    def test_untrack_fn_glob_list(self):
+        result = self.overlord.filetracker.track(self.fn_glob_list)
+        result = self.overlord.filetracker.untrack(self.fn_glob_list)
+        self.assert_on_fault(result)
+
 
     def test_inventory(self):
         result = self.overlord.filetracker.track(self.fn)
@@ -432,6 +562,16 @@ class TestIptablesPort(BaseTest):
     def test_inventory(self):
         results = self.overlord.iptables.port.inventory()
         # doesnt have an inventory, so er... -akl
+
+#class TestHttpd(BaseTest):
+#    module = "httpd"
+#    def test_server_status(self):
+#        result = self.overlord.httpd.server_status()
+#        self.assert_on_fault(result)
+#
+#    def test_graceful(self):
+#        result = self.overlord.httpd.graceful()
+#        self.assert_on_fault(result)
 
         
 class TestEchoTest(BaseTest):

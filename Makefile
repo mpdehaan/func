@@ -1,6 +1,7 @@
-VERSION		= $(shell echo `awk '{ print $$1 }' version`)
-RELEASE		= $(shell echo `awk '{ print $$2 }' version`)
+VERSION		= 0.24 
+RELEASE		= 5 
 NEWRELEASE	= $(shell echo $$(($(RELEASE) + 1)))
+PYTHON		= /usr/bin/python
 
 MESSAGESPOT=po/messages.pot
 
@@ -13,6 +14,7 @@ DIRS	= func docs examples scripts test test/unittest funcweb
 PYDIRS	= func scripts examples funcweb
 EXAMPLEDIR = examples
 INITDIR	= init-scripts
+
 
 all: rpms
 
@@ -28,14 +30,8 @@ messages:
 	sed -i'~' -e 's/SOME DESCRIPTIVE TITLE/func/g' -e 's/YEAR THE PACKAGE'"'"'S COPYRIGHT HOLDER/2007 Red Hat, inc. /g' -e 's/FIRST AUTHOR <EMAIL@ADDRESS>, YEAR/Adrian Likins <alikins@redhat.com>, 2007/g' -e 's/PACKAGE VERSION/func $(VERSION)-$(RELEASE)/g' -e 's/PACKAGE/func/g' $(MESSAGESPOT)
 
 
-bumprelease:	
-	-echo "$(VERSION) $(NEWRELEASE)" > version
-
-setversion: 
-	-echo "$(VERSION) $(RELEASE)" > version
-
 build: clean
-	python setup.py build -f
+	$(PYTHON) setup.py build -f
 
 clean:
 	-rm -f  MANIFEST
@@ -46,7 +42,7 @@ clean:
 	-for d in $(DIRS); do ($(MAKE) -C $$d clean ); done
 
 clean_hard:
-	-rm -rf $(shell python -c "from distutils.sysconfig import get_python_lib; print get_python_lib()")/func 
+	-rm -rf $(shell $(PYTHON) -c "from distutils.sysconfig import get_python_lib; print get_python_lib()")/func 
 
 clean_harder:
 	-rm -rf /etc/pki/func
@@ -57,7 +53,7 @@ clean_hardest: clean_rpms
 
 
 install: build manpage
-	python setup.py install -f
+	$(PYTHON) setup.py install -f
 
 install_hard: clean_hard install
 
@@ -78,9 +74,7 @@ clean_rpms:
 	-rpm -e func
 
 sdist: messages
-	python setup.py sdist
-
-new-rpms: bumprelease rpms
+	$(PYTHON) setup.py sdist
 
 pychecker:
 	-for d in $(PYDIRS); do ($(MAKE) -C $$d pychecker ); done   
@@ -93,7 +87,7 @@ money: clean
 async: install
 	/sbin/service funcd restart
 	sleep 4
-	python test/async_test.py 
+	$(PYTHON) test/async_test.py 
 
 testit: clean
 	-cd test; sh test-it.sh
@@ -104,7 +98,6 @@ unittest:
 rpms: build manpage sdist
 	mkdir -p rpm-build
 	cp dist/*.gz rpm-build/
-	cp version rpm-build/
 	rpmbuild --define "_topdir %(pwd)/rpm-build" \
 	--define "_builddir %{_topdir}" \
 	--define "_rpmdir %{_topdir}" \

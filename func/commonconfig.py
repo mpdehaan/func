@@ -1,4 +1,4 @@
-#!/usr/bin/python
+
 """
 func
 
@@ -14,10 +14,14 @@ Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 """
 
 
-from certmaster.config import BaseConfig, BoolOption, Option
+from certmaster.config import BaseConfig, BoolOption, Option, IntOption
 
 
 class FuncdConfig(BaseConfig):
     log_level = Option('INFO')
     acl_dir = Option('/etc/func/minion-acl.d')
     certmaster_overrides_acls = BoolOption(True)
+
+    listen_addr = Option('')
+    listen_port = IntOption('51234')
+    minion_name = Option('')
